@@ -34,6 +34,19 @@ class BP_REST_Activity_Controller extends WP_REST_Controller {
 			'schema' => array( $this, 'get_public_item_schema' ),
 		) );
 
+		register_rest_route( $this->namespace, '/' . $this->rest_base, array(
+			array(
+				// Trying to create Activity Feeds via API
+				'methods'  => WP_REST_Server::CREATABLE,
+				// Register Callback function for Creating Activities
+				'callback' => array( $this, 'create_activity' ),
+				// Args for endpoint -> we need a user_id, some body to work with, a component, and a type
+				//'permission_callback' => array( $this, 'get_items_permissions_check' ),
+				'args' => $this->get_new_activity_args(),
+			),
+			'schema' => array( $this, 'get_public_item_schema' ),
+		) );
+
 		register_rest_route( $this->namespace, '/' . $this->rest_base . '/(?P<id>[\d]+)', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
@@ -353,6 +366,111 @@ class BP_REST_Activity_Controller extends WP_REST_Controller {
 		) );
 
 		return rest_ensure_response( $retval );
+
+	}
+
+	/**
+	 * Create activity.
+	 *
+	 * @since 0.1.1
+	 *
+	 * @param WP_REST_Request $request
+	 * @return BP Activity ID|WP_Error Plugin object data on success, WP_Error otherwise.
+	 */
+	public function create_activity( $request ) {
+
+		// TODO: query logic. and permissions. and other parameters that might need to be set. etc
+		global $wpdb;
+		$Orion = Orion();
+		$body_data = $request->get_json_params();
+		$user_id = $Orion->wpID_from_orionID($request['user_id']);
+		$activity_id =  bp_activity_add( array(
+			'content' => $body_data['body'],
+			'component' => $body_data['component'],
+			'action'    => $body_data['action'],
+			'type'   =>   $body_data['type'],
+			'user_id' => $user_id
+			//'hide_sitewide' => true
+		) );
+
+		if($activity_id && $user_id){
+			return $activity_id;
+		} else {
+			return new WP_Error( 'activity fail-derpfest', esc_html__( 'Not sure what happened, but its not good',
+			'my-text-domain'	),
+				array(
+				'status' => 400,
+					'json' => $body_data,
+					'userID' => $body_data['user_id']
+				)
+			);
+		}
+	}
+
+	/**
+	 * Filter activity args.
+	 *
+	 * @since 0.1.1
+	 *
+	 * @param WP_REST_Request $request
+	 * @return BP Activity ID|WP_Error Plugin object data on success, WP_Error otherwise.
+	 */
+	public function get_new_activity_args(){
+		$schema = array( $this, 'get_public_item_schema' );
+		$schema_properties = ! empty( $schema['properties'] ) ? $schema['properties'] : array();
+		$args = array();
+		// Here we are registering the schema for the filter argument.
+		$args['user_id'] = array(
+			// description should be a human readable description of the argument.
+			'description' => esc_html__( 'The User ID is to ensure that the user ID provided matches a user in the current installation of WP.',	'my-text-domain' ),
+			// type specifies the type of data that the argument should be.
+			'type'        => 'number',
+			'required'          => true,
+			// enum specified what values filter can take on. <- I don't think we need this
+			/*'enum'        => array( 'red', 'green', 'blue' ),*/
+			// Here we register the validation callback for the filter argument.
+			//'validate_callback' => array($this, 'prefix_filter_arg_validate_user_id'),
+		);
+		/*$args['user_id'] = array(
+			// description should be a human readable description of the argument.
+			'description' => esc_html__( 'The User ID is to ensure that the user ID provided matches a user in the current installation of WP.',	'my-text-domain' ),
+			// type specifies the type of data that the argument should be.
+			'type'        => 'number',
+			// enum specified what values filter can take on. <- I don't think we need this
+//			'enum'        => array( 'red', 'green', 'blue' ),
+			// Here we register the validation callback for the filter argument.
+			'validate_callback' => array($this, 'prefix_filter_arg_validate_user_id'),
+		);*/
+		return $args;
+	}
+
+	/**
+	 * Validate user_id arg.
+	 *
+	 * @since 0.1.1
+	 *
+	 * @param WP_REST_Request $request
+	 * @return BP Activity ID|WP_Error Plugin object data on success, WP_Error otherwise.
+	 */
+	public function prefix_filter_arg_validate_user_id( $value, $request, $param ){
+		if(!is_integer($value)){
+			return new WP_Error( 'rest_invalid_param', esc_html__( 'The user_id argument must be a number.', 'my-text-domain' ), array( 'status' => 400 ) );
+		}
+		$user_obj = get_user_by('id', $value);
+		if($user_obj){
+			$attributes = $request->get_attributes();
+			$args = $attributes['args'][ $param ];
+		} else {
+			$check = Orion()->get_id_by_orion_id($value);
+			if($check){
+				$attributes = $request->get_attributes();
+				$attributes['args'][ $param ] = $check;
+			} else {
+				return new WP_Error( 'rest_invalid_user', esc_html__( 'The user_id provided does not exist.', 'my-text-domain'	), array(
+					'status' => 400 ) );
+			}
+
+		}
 
 	}
 
